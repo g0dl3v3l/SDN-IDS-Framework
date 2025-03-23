@@ -22,26 +22,7 @@ class DataT(Structure):
 stop_signal = False
 
 def start_monitoring(interface, features, output_path, log_format="json", duration=None):
-    """
-    Attach eBPF monitor to a given interface and log selected statistics.
-
-    Parameters:
-    ----------
-    interface : str
-        Name of the network interface (e.g., 's1-eth4')
-    features : list of str
-        Fields to include in output. Valid: saddr, daddr, sport, dport, pkt_len, tcp_flags, timestamp
-    output_path : str
-        Path to output log file (e.g., 'logs/s1-eth4.json')
-    log_format : str
-        One of 'json', 'csv', or 'text'
-    duration : int or None
-        Duration to run the monitor in seconds. Runs until Ctrl+C if None.
-    """
-
-    ebpf_path = os.path.join(os.path.dirname(__file__), "..", "ebpf.c")
-    ebpf_path = os.path.abspath(ebpf_path)
-
+    ebpf_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ebpf.c"))
     if not os.path.exists(ebpf_path):
         raise FileNotFoundError(f"Missing ebpf.c at: {ebpf_path}")
 
@@ -51,7 +32,9 @@ def start_monitoring(interface, features, output_path, log_format="json", durati
     try:
         b = BPF(text=bpf_source, cflags=[
             "-I/usr/local/include/linux-6.8-headers/include",
-            "-D__TARGET_ARCH_arm64"
+            "-I/usr/local/include/linux-6.8-headers/include/linux",
+            "-D__TARGET_ARCH_arm64",
+            "-O2", "-Wall", "-g"
         ])
     except Exception as e:
         raise RuntimeError(f"eBPF compilation failed: {e}")
@@ -75,7 +58,12 @@ def start_monitoring(interface, features, output_path, log_format="json", durati
         return socket.inet_ntoa(struct.pack("I", addr))
 
     def handle_event(cpu, data, size):
-        event = b["events"].event(data)
+        try:
+            event = b["events"].event(data)
+        except Exception as e:
+            print(f"[!] Perf decode error: {e}")
+            return
+
         pkt = {}
 
         if "saddr" in features:
@@ -91,16 +79,21 @@ def start_monitoring(interface, features, output_path, log_format="json", durati
         if "pkt_len" in features:
             pkt["pkt_len"] = event.pkt_len
         if "timestamp" in features:
-            pkt["timestamp"] = event.timestamp // 1_000_000
+            pkt["timestamp"] = event.timestamp // 1_000_000  # ns → ms
 
+        # Log to file
         if log_format == "text":
-            line = " | ".join(f"{k}: {v}" for k, v in pkt.items())
-            f.write(line + "\n")
+            f.write(" | ".join(f"{k}: {v}" for k, v in pkt.items()) + "\n")
         elif log_format == "csv":
             writer.writerow(pkt)
         elif log_format == "json":
             json.dump(pkt, f)
             f.write(",\n")
+
+        f.flush()
+
+        # Print packet summary to terminal
+        print(f"[TCP] {pkt.get('saddr')}:{pkt.get('sport')} → {pkt.get('daddr')}:{pkt.get('dport')} | len={pkt.get('pkt_len')} | flags={pkt.get('tcp_flags')} | ts={pkt.get('timestamp')}")
 
     def handle_lost(cpu, count):
         print(f"[!] Lost {count} events on CPU {cpu}")
@@ -115,6 +108,7 @@ def start_monitoring(interface, features, output_path, log_format="json", durati
     print(f"✅ Monitoring {interface} | Logging to {output_path} | Format: {log_format}")
     start_time = time.time()
 
+    b["events"].event_type = DataT
     b["events"].open_perf_buffer(handle_event, lost_cb=handle_lost)
 
     try:
