@@ -7,6 +7,7 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <time.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -21,6 +22,9 @@ struct data_t {
     __u32 daddr;
     __u16 sport;
     __u16 dport;
+    __u8  tcp_flags;
+    __u32 pkt_len;
+    __u64 timestamp;
 };
 
 static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz) {
@@ -30,11 +34,18 @@ static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz) {
     inet_ntop(AF_INET, &event->saddr, src_ip, sizeof(src_ip));
     inet_ntop(AF_INET, &event->daddr, dst_ip, sizeof(dst_ip));
 
-    printf("TCP packet: %s:%d → %s:%d\n", src_ip, event->sport, dst_ip, event->dport);
+    double ts_ms = event->timestamp / 1e6;
+
+    printf("TCP packet: %s:%d → %s:%d | len=%u | flags=0x%02x | ts=%.3f ms\n",
+        src_ip, event->sport,
+        dst_ip, event->dport,
+        event->pkt_len, event->tcp_flags,
+        ts_ms
+    );
 }
 
 static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt) {
-    fprintf(stderr, "Lost %llu events on CPU %d\n", lost_cnt, cpu);
+    fprintf(stderr, "⚠️  Lost %llu events on CPU %d\n", lost_cnt, cpu);
 }
 
 static void sig_handler(int sig) {
@@ -47,7 +58,7 @@ int main() {
     struct bpf_map *map;
     struct perf_buffer *pb = NULL;
 
-    const char *iface = "s1-eth4"; // change as needed
+    const char *iface = "s1-eth4"; // You can change this
     int ifindex = if_nametoindex(iface);
     if (!ifindex) {
         perror("Invalid interface");
@@ -80,7 +91,6 @@ int main() {
         return 1;
     }
 
-    // ✅ Attach using bpf_xdp_attach instead of libxdp
     if (bpf_xdp_attach(ifindex, prog_fd, XDP_FLAGS_DRV_MODE, NULL) < 0) {
         perror("Failed to attach XDP program");
         return 1;
@@ -100,12 +110,14 @@ int main() {
     }
 
     printf("✅ Listening for TCP packets on %s... Press Ctrl+C to exit\n", iface);
+
     while (!exiting) {
         perf_buffer__poll(pb, 100);
     }
 
-    printf("Detaching...\n");
+    printf("Detaching program from interface...\n");
     bpf_xdp_attach(ifindex, -1, XDP_FLAGS_DRV_MODE, NULL);
+
     perf_buffer__free(pb);
     bpf_object__close(obj);
     return 0;

@@ -1,12 +1,13 @@
+Absolutely Tarun! Here's your updated 📄 `src/ebpf/README.md`, now with the **corrected build + run steps** you followed earlier (using manual `clang` compilation and `ip link set`), fully integrated.
 
+---
 
-# 📄 `src/ebpf/README.md`
-
+```markdown
 # eBPF Module – TCP Packet Monitoring (XDP)
 
 This module is part of the larger **SDN-IDS-Framework**, responsible for real-time monitoring of TCP packets at the data plane using **eBPF/XDP**. It enables high-performance flow visibility directly at the network interface level.
 
-
+---
 
 ## 📘 eBPF Component: File Roles & Execution Flow
 
@@ -22,7 +23,7 @@ This module is part of the larger **SDN-IDS-Framework**, responsible for real-ti
 
 ---
 
-### 🔁 General Flow of Execution
+## 🔁 General Flow of Execution
 
 ```text
                 +--------------------------+
@@ -53,41 +54,36 @@ This module is part of the larger **SDN-IDS-Framework**, responsible for real-ti
 
 ---
 
-### ⚙️ Execution Methods
+## ⚙️ Execution Methods
 
-#### ✅ Method 1: **Using Makefile (Recommended)**
-
-```bash
-cd src/ebpf
-make            # Builds xdp_prog.o and xdp_user
-sudo ./xdp_user # Attaches and starts real-time monitoring
-```
-
-#### ✅ Method 2: **Manual Compilation**
+### ✅ Method 1: **Manual Compilation and Run (Recommended)**
 
 ```bash
-# Compile the eBPF kernel program
+# Compile the eBPF kernel program (with BTF support)
 clang -O2 -g -Wall -target bpf \
   -I/usr/local/include/linux-6.8-headers/include \
   -D__TARGET_ARCH_arm64 \
   -c ebpf.c -o xdp_prog.o
 
-# Compile user-space loader
+# Attach the XDP program to a Mininet/host interface
+sudo ip link set dev s1-eth4 xdp obj xdp_prog.o sec xdp
+
+# Compile user-space listener
 gcc -O2 -Wall -o xdp_user xdp_user.c -lbpf -lelf
 
 # Run the monitor
 sudo ./xdp_user
 ```
 
-> ❌ If you get errors like `undefined reference to bpf_set_link_xdp_fd`, switch to `bpf_xdp_attach()` instead. (Already used in your version.)
+> ✅ After running this, start `iperf` traffic in Mininet and you’ll see flow outputs in your terminal.
 
 ---
 
 ### 🛑 To Detach the Program
 
-If you Ctrl+C, the program detaches automatically.
-
+If you Ctrl+C, the program detaches automatically.  
 To manually detach:
+
 ```bash
 sudo ip link set dev s1-eth4 xdp off
 ```
@@ -96,17 +92,28 @@ sudo ip link set dev s1-eth4 xdp off
 
 ### 🔄 Interface Switching
 
-Want to attach to another interface?
+To monitor another interface:
 
-In `xdp_user.c`, change this line:
+In `xdp_user.c`, change:
+
 ```c
 const char *iface = "s1-eth4";
 ```
-to any other Mininet interface (e.g., `h1-eth0`, `eth0`, etc.)
+
+To:
+
+```c
+const char *iface = "h1-eth0"; // or any valid Mininet interface
+```
+
+Then recompile:
+```bash
+gcc -O2 -Wall -o xdp_user xdp_user.c -lbpf -lelf
+```
 
 ---
 
-### 📥 Future Extensions
+## 📥 Future Extensions
 
 - Add maps to count per-source IP traffic
 - Use BPF tail calls or helper functions for modularity
@@ -120,4 +127,4 @@ This eBPF module is pluggable and designed to scale with the evolving RL-based S
 
 ---
 
-Let me know when you're ready and I’ll generate the updated **root-level README.md** next.
+Let me know when you're ready to update the `README.md` at the **root of the repo**, or want to generate the `Makefile` for these steps!
