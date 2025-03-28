@@ -7,9 +7,18 @@ sys.path.insert(0, project_root)
 
 from ebpf.user.ebpf_monitor import start_multi_monitoring
 
+
+import glob
+import os
+
+for f in glob.glob("logs/*.csv") + glob.glob("logs/*.jsonl"):
+    os.remove(f)
+
+
+
 if __name__ == "__main__":
     # 🔧 Interfaces to monitor (update as needed)
-    interfaces = ["s1-eth1", "s1-eth2", "s2-eth1"]
+    interfaces = ["s1-eth1", "s1-eth2", "s1-eth3", "s1-eth4","s2-eth1","s2-eth2","s2-eth3","s2-eth4"]
 
     # 🔧 Fields to capture
     features = ["saddr", "daddr", "sport", "dport", "pkt_len", "tcp_flags", "timestamp"]
